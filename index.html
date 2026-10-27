@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Heritage Guide</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#000000">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+:root{--bg:#000;--fg:#fff;--ac:#ffd400;--line:#fff}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{display:flex;flex-direction:column;background:var(--bg);color:var(--fg);font:1.25rem/1.6 system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom);touch-action:pan-y}
+header{padding:.6rem 1rem;border-bottom:3px solid var(--ac);display:flex;justify-content:space-between;align-items:center;gap:.5rem}
+header b{color:var(--ac);font-size:1.1rem}
+#pos{font-size:1.1rem}
+main{flex:1;overflow-y:auto;padding:1rem 1.1rem 1.5rem;max-width:42rem;width:100%;margin:0 auto}
+main:focus,h1:focus{outline:none}
+h1{font-size:2rem;line-height:1.2;margin:.2rem 0 1rem;color:var(--ac)}
+h2{font-size:1.3rem;margin:1.5rem 0 .3rem}
+ul{padding-left:1.4rem;margin:.3rem 0}li{margin:.5rem 0}
+audio{width:100%;margin-top:1rem}
+#live{margin-top:1.2rem;padding:1rem;border:3px solid var(--ac);border-radius:.5rem}
+#live:empty{display:none}
+nav{display:grid;grid-template-columns:1fr 1fr;gap:.6rem;padding:.7rem .8rem;border-top:3px solid var(--ac);max-width:42rem;width:100%;margin:0 auto}
+button{font:inherit;font-weight:700;min-height:4rem;border:3px solid var(--fg);border-radius:.6rem;background:#000;color:var(--fg);padding:.4rem;cursor:pointer}
+button:focus-visible{outline:5px solid var(--ac);outline-offset:2px}
+button:active,.primary{background:var(--ac);color:#000;border-color:var(--ac)}
+button[disabled]{opacity:.4}
+.wide{grid-column:1/-1}
+small{display:block;font-weight:400;font-size:.9rem}
+#status{font-size:.95rem;padding:.3rem 1rem;color:#ccc;text-align:center}
+dialog{background:#000;color:#fff;border:3px solid var(--ac);border-radius:.6rem;width:min(40rem,94vw);max-height:90vh;padding:1rem}
+dialog::backdrop{background:rgba(0,0,0,.85)}
+dialog button{width:100%;text-align:left;margin:.4rem 0;padding:.6rem .8rem}
+.row{display:flex;gap:.6rem;align-items:center;margin:.8rem 0}
+.row label{flex:1}input[type=range]{flex:1;height:2.5rem;accent-color:var(--ac)}input[type=checkbox]{width:2rem;height:2rem;accent-color:var(--ac)}
+.sr{position:absolute;left:-9999px}
+</style>
+</head>
+<body>
+<header><b id="site"></b><span id="pos"></span></header>
+<main id="main" tabindex="-1" aria-label="Guide content"></main>
+<div id="status" role="status"></div>
+<nav aria-label="Controls">
+  <button id="prev">Previous</button>
+  <button id="next" class="primary">Next</button>
+  <button id="read">Read aloud</button>
+  <button id="where">Where am I?</button>
+  <button id="home">Back to entrance</button>
+  <button id="menu">All places and settings</button>
+  <button id="install" class="wide" hidden>Install this guide on my phone</button>
+</nav>
+<dialog id="dlg" aria-labelledby="dt">
+  <h2 id="dt">Settings and places</h2>
+  <div class="row"><input type="checkbox" id="auto"><label for="auto">Read each place automatically</label></div>
+  <div class="row"><label for="rate">Speech speed</label><input type="range" id="rate" min="0.6" max="1.6" step="0.1"></div>
+  <h2>Lost? Choose the place that matches what you hear and feel</h2>
+  <div id="list"></div>
+  <button id="close" class="primary" style="text-align:center">Close</button>
+</dialog>
+<div class="sr" id="sr" aria-live="assertive"></div>
+<script src="content.js"></script>
+<script>
+const S = SECTIONS, N = S.length, $ = id => document.getElementById(id);
+const store = {get:(k,d)=>{try{const v=localStorage.getItem(k);return v===null?d:JSON.parse(v)}catch(e){return d}},set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
+let i = Math.min(Math.max(store.get('pos',0),0),N-1), auto = store.get('auto',true), rate = store.get('rate',1);
+document.documentElement.lang = APP_LANG.slice(0,2); document.title = SITE_NAME; $('site').textContent = SITE_NAME;
+
+/* ---- speech ---- */
+let speaking = false;
+function stopSpeech(){ speechSynthesis.cancel(); speaking=false; $('read').textContent='Read aloud'; }
+function speak(text){
+  stopSpeech(); if(!('speechSynthesis' in window)) return;
+  const parts = text.match(/[^.!?]+[.!?]*/g) || [text]; // short chunks avoid cut-offs on Android
+  speaking = true; $('read').textContent='Stop reading';
+  parts.forEach((p,k)=>{ const u=new SpeechSynthesisUtterance(p.trim()); u.lang=APP_LANG; u.rate=rate;
+    if(k===parts.length-1) u.onend=()=>{speaking=false;$('read').textContent='Read aloud'};
+    speechSynthesis.speak(u); });
+}
+function fullText(s){ return s.title+'. '+s.text+(s.discover.length?' You can discover: '+s.discover.join('. ')+'.':''); }
+
+/* ---- render / navigate ---- */
+function render(focus){
+  const s=S[i]; stopSpeech(); document.querySelectorAll('audio').forEach(a=>a.pause());
+  $('pos').textContent=`Place ${i+1} of ${N}`;
+  $('main').innerHTML = `<h1 tabindex="-1" id="h">${s.title}</h1><p>${s.text}</p>`+
+    (s.discover.length?`<h2>What you can discover here</h2><ul>${s.discover.map(d=>`<li>${d}</li>`).join('')}</ul>`:'')+
+    (s.audio?`<h2>Audio</h2><audio controls src="${s.audio}" aria-label="Audio for ${s.title}"></audio>`:'')+'<div id="live" role="region" aria-label="Location help"></div>';
+  $('main').scrollTop=0; $('prev').disabled=i===0; $('next').disabled=i===N-1; $('home').disabled=i===0;
+  store.set('pos',i);
+  if(focus) $('h').focus();
+}
+function go(n,user=true){
+  n=Math.min(Math.max(n,0),N-1); if(n===i&&user){ speak(S[i].title+'. '+(n===0?'This is the first place.':'This is the last place.')); return; }
+  i=n; render(true); navigator.vibrate&&navigator.vibrate(40);
+  if(auto&&user) speak(`${S[i].title}. Place ${i+1} of ${N}. `+fullText(S[i]).slice(S[i].title.length+2));
+}
+function whereAmI(){
+  const s=S[i], t=`You are at ${s.title}, place ${i+1} of ${N}. ${s.where} `+
+   (i>0?`Previous place: ${S[i-1].title}. `:'')+(i<N-1?`Next place: ${S[i+1].title}. `:'')+
+   `To return to the entrance: ${s.toEntrance} If this does not match what you feel around you, open All places and settings to find where you are.`;
+  const l=$('live'); if(l){l.textContent=t;} speak(t);
+}
+$('next').onclick=()=>go(i+1); $('prev').onclick=()=>go(i-1); $('home').onclick=()=>go(0);
+$('where').onclick=whereAmI; $('read').onclick=()=>speaking?stopSpeech():speak(fullText(S[i]));
+
+/* ---- menu / lost ---- */
+$('list').innerHTML=S.map((s,k)=>`<button data-k="${k}"><b>${s.title}</b><small>${s.clues}</small></button>`).join('');
+$('list').onclick=e=>{const b=e.target.closest('button');if(!b)return;$('dlg').close();go(+b.dataset.k)};
+$('menu').onclick=()=>{$('dlg').showModal()}; $('close').onclick=()=>$('dlg').close();
+$('auto').checked=auto; $('auto').onchange=e=>{auto=e.target.checked;store.set('auto',auto)};
+$('rate').value=rate; $('rate').onchange=e=>{rate=+e.target.value;store.set('rate',rate);speak('This is the new speech speed.')};
+
+/* ---- swipe (left = next, right = previous) and keyboard ---- */
+let x0,y0,t0;
+document.addEventListener('touchstart',e=>{if(e.target.closest('audio,dialog,input'))return;const t=e.touches[0];x0=t.clientX;y0=t.clientY;t0=Date.now()},{passive:true});
+document.addEventListener('touchend',e=>{if(x0==null)return;const t=e.changedTouches[0],dx=t.clientX-x0,dy=t.clientY-y0;
+  if(Math.abs(dx)>60&&Math.abs(dx)>1.6*Math.abs(dy)&&Date.now()-t0<800) go(dx<0?i+1:i-1); x0=null},{passive:true});
+document.addEventListener('keydown',e=>{if($('dlg').open||e.target.matches('input,audio'))return;
+  if(e.key==='ArrowRight')go(i+1); else if(e.key==='ArrowLeft')go(i-1); else if(e.key==='Home')go(0);});
+
+/* ---- offline / install ---- */
+const st=$('status');
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('sw.js').then(()=>navigator.serviceWorker.ready).then(()=>{st.textContent='Ready: all content is saved on this phone and works offline.'}).catch(()=>{st.textContent='Offline saving is not available in this browser.'});
+} else st.textContent='Offline saving is not available in this browser.';
+let dp; addEventListener('beforeinstallprompt',e=>{e.preventDefault();dp=e;$('install').hidden=false});
+$('install').onclick=async()=>{if(!dp)return;dp.prompt();await dp.userChoice;dp=null;$('install').hidden=true};
+addEventListener('appinstalled',()=>{$('install').hidden=true});
+render(false);
+</script>
+</body>
+</html>
