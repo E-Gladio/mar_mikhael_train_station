@@ -28,7 +28,7 @@ self.SECTIONS = [
     clues: "Metal rails underfoot, a smell of oil and iron, large cold iron wheels.",
     where: "You are beside the steam locomotive, to the right of the garden.",
     toEntrance: "Walk back along the path until you reach gravel again, turn left at the fountain, and continue about thirty steps to the entrance archway.",
-    audio: ""
+    audio: "audio/train_sound.mp3"
   },
   {
     title: "Room 1: the great hall",
